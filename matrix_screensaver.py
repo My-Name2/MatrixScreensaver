@@ -27,7 +27,7 @@ spawn_rate = st.sidebar.slider("Spawn rate (lower = faster)", 0.1, 1.5, 0.4, 0.0
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Style")
 brightness = st.sidebar.slider("Glow brightness", 0.3, 1.0, 0.8, 0.05)
-trail_length = st.sidebar.slider("Trail length (words)", 3, 20, 10)
+trail_length = st.sidebar.slider("Trail length (words)", 3, 25, 12)
 
 if st.sidebar.button("🔄 Regenerate", use_container_width=True):
     st.rerun()
@@ -64,7 +64,6 @@ html = f"""
     font-size: {font_size}px;
     line-height: 1;
     pointer-events: none;
-    will-change: transform, opacity;
   }}
   /* Scanlines */
   #matrix::after {{
@@ -90,111 +89,155 @@ html = f"""
 (function() {{
   const words = {words_json};
   const numCols = {num_columns};
-  const baseSpeed = {base_speed};       // seconds to cross screen
+  const baseSpeed = {base_speed};
   const speedVar = {speed_variance};
   const brightness = {brightness};
   const trailLen = {trail_length};
-  const spawnRate = {spawn_rate};        // seconds between spawns per stream
+  const spawnInterval = {spawn_rate} * 1000;
   const container = document.getElementById('matrix');
   const H = container.offsetHeight || 750;
   const W = container.offsetWidth || 1200;
   const colWidth = W / numCols;
-  const lineH = {font_size} * 1.4;
+  const lineH = {font_size} * 1.6;
 
-  // Per-stream state: each stream tracks its active words for trail fading
-  const streams = [];
-
-  function pickWord(lastWord) {{
+  function pickWord(last) {{
     let w = words[Math.floor(Math.random() * words.length)];
-    let tries = 0;
-    while (w === lastWord && words.length > 1 && tries < 10) {{
+    let t = 0;
+    while (w === last && words.length > 1 && t < 10) {{
       w = words[Math.floor(Math.random() * words.length)];
-      tries++;
+      t++;
     }}
     return w;
   }}
 
+  // Each stream: head moves down, leaves words behind that fade out
   function Stream(index) {{
     this.index = index;
     this.x = index * colWidth;
-    this.active = [];
+    this.drops = []; // {{ el, row, birthTime }}
     this.lastWord = '';
-    // Randomize speed per stream
-    const v = (Math.random() - 0.5) * 2 * speedVar;
-    this.pxPerSec = H / Math.max(1, baseSpeed + v);
-    // Stagger start
-    this.nextSpawn = Math.random() * spawnRate * 15;
+    this.reset(true);
   }}
 
-  Stream.prototype.spawn = function(now) {{
-    const word = pickWord(this.lastWord);
-    this.lastWord = word;
+  Stream.prototype.reset = function(initial) {{
+    // Random speed
+    const v = (Math.random() - 0.5) * 2 * speedVar;
+    this.speed = H / Math.max(1, baseSpeed + v); // px per sec
 
-    const el = document.createElement('div');
-    el.className = 'word';
-    el.textContent = word;
-    el.style.left = this.x + 'px';
-    el.style.top = '-30px';
-    container.appendChild(el);
+    // Head starts at random Y if initial, else from top or random
+    if (initial) {{
+      this.headY = Math.random() * H;
+    }} else {{
+      // Sometimes start from top, sometimes from random spot
+      this.headY = Math.random() < 0.3 ? -lineH : Math.random() * H * 0.3;
+    }}
 
-    const item = {{ el: el, y: -30, born: now }};
-    this.active.push(item);
+    this.lastSpawn = performance.now() - Math.random() * spawnInterval;
+    this.alive = true;
 
-    // Schedule next spawn
-    this.nextSpawn = now + spawnRate * 1000 * (0.7 + Math.random() * 0.6);
+    // Random lifespan: how far the head travels before this stream resets
+    this.maxTravel = H * (0.5 + Math.random() * 1.5);
+    this.traveled = 0;
   }};
 
   Stream.prototype.update = function(now, dt) {{
-    // Spawn new word?
-    if (now >= this.nextSpawn) {{
-      this.spawn(now);
+    if (!this.alive) return;
+
+    // Move head down
+    const movePx = this.speed * dt;
+    this.headY += movePx;
+    this.traveled += movePx;
+
+    // Spawn a new word at head position
+    if (now - this.lastSpawn >= spawnInterval * (0.7 + Math.random() * 0.6)) {{
+      const word = pickWord(this.lastWord);
+      this.lastWord = word;
+
+      const el = document.createElement('div');
+      el.className = 'word';
+      el.textContent = word;
+      el.style.left = this.x + 'px';
+      el.style.top = this.headY + 'px';
+      container.appendChild(el);
+
+      this.drops.push({{ el: el, y: this.headY, born: now }});
+      this.lastSpawn = now;
     }}
 
-    // Move & style each word
-    for (let i = this.active.length - 1; i >= 0; i--) {{
-      const item = this.active[i];
-      item.y += this.pxPerSec * dt;
-      item.el.style.transform = 'translateY(' + item.y + 'px)';
+    // Style drops based on distance from head
+    for (let i = this.drops.length - 1; i >= 0; i--) {{
+      const drop = this.drops[i];
+      // How far behind the head (in word-slots)
+      const distPx = this.headY - drop.y;
+      const pos = distPx / lineH;
 
-      // Position in trail: 0 = newest (leading), higher = older
-      const pos = this.active.length - 1 - i;
-
-      if (pos === 0) {{
-        // Leading edge - bright white
-        item.el.style.color = '#ffffff';
-        item.el.style.textShadow = '0 0 12px #00ff41, 0 0 25px #00ff41, 0 0 4px #fff';
-        item.el.style.opacity = '1.0';
-      }} else if (pos <= trailLen * 0.3) {{
+      if (pos <= 0.5) {{
+        // Leading word - bright white
+        drop.el.style.color = '#ffffff';
+        drop.el.style.textShadow = '0 0 14px #00ff41, 0 0 30px #00ff41, 0 0 5px #fff';
+        drop.el.style.opacity = '1.0';
+      }} else if (pos <= trailLen * 0.25) {{
         // Bright green
-        item.el.style.color = '#00ff41';
-        item.el.style.textShadow = '0 0 8px #00ff41, 0 0 2px #00cc33';
-        item.el.style.opacity = (brightness * 0.9).toFixed(2);
-      }} else if (pos <= trailLen * 0.7) {{
-        // Mid green
-        const fade = 1 - ((pos - trailLen * 0.3) / (trailLen * 0.4));
-        item.el.style.color = '#00aa30';
-        item.el.style.textShadow = '0 0 4px #00aa30';
-        item.el.style.opacity = (Math.max(0.15, fade * brightness * 0.6)).toFixed(2);
+        drop.el.style.color = '#00ff41';
+        drop.el.style.textShadow = '0 0 10px #00ff41, 0 0 3px #00cc33';
+        drop.el.style.opacity = (brightness * 0.95).toFixed(2);
+      }} else if (pos <= trailLen * 0.6) {{
+        // Mid green with fade
+        const t = (pos - trailLen * 0.25) / (trailLen * 0.35);
+        const op = brightness * (0.7 - t * 0.35);
+        drop.el.style.color = '#00aa30';
+        drop.el.style.textShadow = '0 0 4px #00882a';
+        drop.el.style.opacity = Math.max(0.1, op).toFixed(2);
       }} else if (pos <= trailLen) {{
-        // Dim
-        const fade = 1 - ((pos - trailLen * 0.7) / (trailLen * 0.3));
-        item.el.style.color = '#005a15';
-        item.el.style.textShadow = 'none';
-        item.el.style.opacity = (Math.max(0.05, fade * 0.2)).toFixed(2);
+        // Dim tail
+        const t = (pos - trailLen * 0.6) / (trailLen * 0.4);
+        const op = 0.2 - t * 0.15;
+        drop.el.style.color = '#005a15';
+        drop.el.style.textShadow = 'none';
+        drop.el.style.opacity = Math.max(0.03, op).toFixed(2);
       }} else {{
-        // Beyond trail - fade out and remove
-        item.el.style.opacity = '0';
+        // Past trail - remove
+        container.removeChild(drop.el);
+        this.drops.splice(i, 1);
+        continue;
       }}
 
-      // Remove if off screen or fully faded
-      if (item.y > H + 50 || pos > trailLen + 2) {{
-        container.removeChild(item.el);
-        this.active.splice(i, 1);
+      // Also remove if off screen
+      if (drop.y > H + 50 || drop.y < -50) {{
+        container.removeChild(drop.el);
+        this.drops.splice(i, 1);
       }}
+    }}
+
+    // Reset stream when head has traveled far enough
+    if (this.traveled > this.maxTravel) {{
+      this.alive = false;
+      // Let remaining drops fade out, then reset
+      const self = this;
+      const fadeCheck = setInterval(function() {{
+        // Remove any remaining
+        for (let i = self.drops.length - 1; i >= 0; i--) {{
+          const drop = self.drops[i];
+          const distPx = self.headY - drop.y;
+          const pos = distPx / lineH;
+          if (pos > trailLen) {{
+            container.removeChild(drop.el);
+            self.drops.splice(i, 1);
+          }}
+        }}
+        if (self.drops.length === 0) {{
+          clearInterval(fadeCheck);
+          // Pause before respawning
+          setTimeout(function() {{
+            self.reset(false);
+          }}, Math.random() * 2000 + 500);
+        }}
+      }}, 200);
     }}
   }};
 
-  // Init streams
+  // Init streams with staggered starts
+  const streams = [];
   for (let i = 0; i < numCols; i++) {{
     streams.push(new Stream(i));
   }}
@@ -245,9 +288,9 @@ st.markdown(
         color: #00ff41 !important;
         border: 1px solid #00ff41 !important;
     }
-    section[data-testid="stSidebar"] button:hover {
+    section[data-testid="stSidebar"] button:hover {{
         background-color: #003300 !important;
-    }
+    }}
     iframe { border: none !important; }
     </style>
     """,
