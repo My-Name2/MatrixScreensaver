@@ -18,6 +18,7 @@ st.sidebar.markdown("### Layout")
 num_columns = st.sidebar.slider("Number of streams", 8, 60, 28)
 font_size = st.sidebar.slider("Font size (px)", 8, 22, 13)
 trails_per_col = st.sidebar.slider("Trails per column", 1, 4, 2)
+gap_words = st.sidebar.slider("Gap between trails (words)", 0, 10, 2)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Speed")
@@ -29,7 +30,6 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Style")
 brightness = st.sidebar.slider("Glow brightness", 0.3, 1.0, 0.8, 0.05)
 trail_length = st.sidebar.slider("Trail length (words)", 3, 25, 12)
-respawn_delay = st.sidebar.slider("Respawn delay (sec)", 0.0, 3.0, 0.2, 0.1)
 
 if st.sidebar.button("🔄 Regenerate", use_container_width=True):
     st.rerun()
@@ -89,20 +89,19 @@ html = f"""
 (function() {{
   const words = {words_json};
   const numCols = {num_columns};
-  const trailsPerCol = {trails_per_col};
+  const maxTrails = {trails_per_col};
+  const gapWords = {gap_words};
   const baseSpeed = {base_speed};
   const speedVar = {speed_variance};
   const bri = {brightness};
   const trailLen = {trail_length};
   const spawnMs = {spawn_rate} * 1000;
-  const respawnMs = {respawn_delay} * 1000;
   const C = document.getElementById('matrix');
   const H = C.offsetHeight || 750;
   const W = C.offsetWidth || 1200;
   const colW = W / numCols;
   const lnH = {font_size} * 1.6;
-
-  const RUNNING = 0, DRAINING = 1, WAITING = 2;
+  const gapPx = gapWords * lnH;
 
   function pick(last) {{
     let w = words[Math.floor(Math.random() * words.length)];
@@ -112,128 +111,174 @@ html = f"""
     return w;
   }}
 
-  function newTrail(colIdx, initial) {{
+  // A single trail (head + drops)
+  function Trail(x) {{
     const v = (Math.random() - 0.5) * 2 * speedVar;
-    const spd = H / Math.max(0.5, baseSpeed + v);
-    let startY;
-    if (initial) {{
-      startY = Math.random() * H;
-    }} else {{
-      startY = Math.random() < 0.4 ? -lnH : Math.random() * H * 0.2;
-    }}
-    return {{
-      colIdx: colIdx,
-      x: colIdx * colW,
-      headY: startY,
-      speed: spd,
-      drops: [],
-      lastWord: '',
-      lastSpawn: 0,
-      state: RUNNING,
-      maxTravel: H * (0.3 + Math.random() * 1.0),
-      traveled: 0,
-      waitUntil: 0
-    }};
+    this.x = x;
+    this.headY = -lnH;
+    this.speed = H / Math.max(0.5, baseSpeed + v);
+    this.drops = [];
+    this.lastWord = '';
+    this.lastSpawn = 0;
+    this.maxTravel = H * (0.4 + Math.random() * 1.0);
+    this.traveled = 0;
+    this.done = false;    // head stopped spawning
+    this.dead = false;    // all drops cleaned up
   }}
 
-  // Create multiple trails per column, staggered
-  const allTrails = [];
-  for (let col = 0; col < numCols; col++) {{
-    for (let t = 0; t < trailsPerCol; t++) {{
-      const tr = newTrail(col, true);
-      // Stagger the multiple trails within a column
-      tr.headY = Math.random() * H * (0.3 + t * 0.5 / trailsPerCol) + t * (H / trailsPerCol) * Math.random();
-      tr.lastSpawn = -Math.random() * spawnMs * 5;
-      allTrails.push(tr);
+  // Tail Y = the topmost (oldest) drop still alive
+  Trail.prototype.tailY = function() {{
+    if (this.drops.length === 0) return this.headY;
+    return this.drops[0].y;
+  }};
+
+  Trail.prototype.update = function(now, dt) {{
+    const mv = this.speed * dt;
+    this.headY += mv;
+    this.traveled += mv;
+
+    // Spawn new word at head if still running
+    if (!this.done && now - this.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
+      const word = pick(this.lastWord);
+      this.lastWord = word;
+      const el = document.createElement('div');
+      el.className = 'w';
+      el.textContent = word;
+      el.style.left = this.x + 'px';
+      el.style.top = this.headY + 'px';
+      C.appendChild(el);
+      this.drops.push({{ el: el, y: this.headY }});
+      this.lastSpawn = now;
     }}
+
+    // Stop spawning when traveled enough
+    if (!this.done && this.traveled >= this.maxTravel) {{
+      this.done = true;
+    }}
+
+    // Style & cleanup drops
+    for (let i = this.drops.length - 1; i >= 0; i--) {{
+      const d = this.drops[i];
+      const dist = (this.headY - d.y) / lnH;
+
+      if (dist <= 0.5) {{
+        d.el.style.color = '#fff';
+        d.el.style.textShadow = '0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff';
+        d.el.style.opacity = '1';
+      }} else if (dist <= trailLen * 0.25) {{
+        d.el.style.color = '#00ff41';
+        d.el.style.textShadow = '0 0 10px #00ff41,0 0 3px #00cc33';
+        d.el.style.opacity = (bri * 0.95).toFixed(2);
+      }} else if (dist <= trailLen * 0.6) {{
+        const f = (dist - trailLen * 0.25) / (trailLen * 0.35);
+        d.el.style.color = '#00aa30';
+        d.el.style.textShadow = '0 0 4px #00882a';
+        d.el.style.opacity = Math.max(0.08, bri * (0.7 - f * 0.4)).toFixed(2);
+      }} else if (dist <= trailLen) {{
+        const f = (dist - trailLen * 0.6) / (trailLen * 0.4);
+        d.el.style.color = '#005a15';
+        d.el.style.textShadow = 'none';
+        d.el.style.opacity = Math.max(0.02, 0.15 - f * 0.13).toFixed(2);
+      }} else {{
+        d.el.remove();
+        this.drops.splice(i, 1);
+        continue;
+      }}
+    }}
+
+    if (this.done && this.drops.length === 0) {{
+      this.dead = true;
+    }}
+  }};
+
+  // Each column manages a queue of trails
+  function Column(index) {{
+    this.index = index;
+    this.x = index * colW;
+    this.trails = [];
+    // Start with one trail at a random Y
+    const t = new Trail(this.x);
+    t.headY = Math.random() * H;
+    t.lastSpawn = -Math.random() * spawnMs * 3;
+    this.trails.push(t);
+  }}
+
+  Column.prototype.update = function(now, dt) {{
+    // Update all active trails
+    for (let i = this.trails.length - 1; i >= 0; i--) {{
+      this.trails[i].update(now, dt);
+      if (this.trails[i].dead) {{
+        this.trails.splice(i, 1);
+      }}
+    }}
+
+    // Try to spawn a new trail if we have room
+    if (this.trails.length < maxTrails) {{
+      // Check if we can spawn: the last trail's tail must have cleared
+      // enough space from the top for a new trail to start without overlap
+      let canSpawn = true;
+
+      if (this.trails.length > 0) {{
+        // Find the trail whose tail is closest to the top (most recent one)
+        let lowestTail = -Infinity;
+        for (let i = 0; i < this.trails.length; i++) {{
+          const ty = this.trails[i].tailY();
+          if (ty > lowestTail) lowestTail = ty;
+        }}
+        // Also check head positions to avoid spawning between head and tail
+        let lowestHead = -Infinity;
+        for (let i = 0; i < this.trails.length; i++) {{
+          if (this.trails[i].headY > lowestHead) lowestHead = this.trails[i].headY;
+        }}
+
+        // The new trail starts from above, so we need the previous trail's
+        // TAIL to have moved down enough to leave a gap
+        // tailY is the oldest drop; headY is the newest (bottom)
+        // We want: the oldest surviving drop of any trail is far enough
+        // below where a new head would start spawning (-lnH from top)
+        // Actually simpler: just check that no existing trail occupies
+        // the region from -lnH to gapPx below -lnH
+
+        // Even simpler: the newest trail's HEAD should be far enough
+        // that its full trail body (headY - trailLen*lnH) leaves room
+        // for a new trail starting from -lnH
+        const trailTopOfNewest = lowestHead - trailLen * lnH;
+        if (trailTopOfNewest < gapPx) {{
+          canSpawn = false;
+        }}
+      }}
+
+      if (canSpawn) {{
+        const t = new Trail(this.x);
+        t.headY = -lnH;
+        t.lastSpawn = now;
+        this.trails.push(t);
+      }}
+    }}
+
+    // Safety: always have at least one trail queued
+    if (this.trails.length === 0) {{
+      const t = new Trail(this.x);
+      t.headY = -lnH;
+      t.lastSpawn = now;
+      this.trails.push(t);
+    }}
+  }};
+
+  const columns = [];
+  for (let i = 0; i < numCols; i++) {{
+    columns.push(new Column(i));
   }}
 
   let lt = performance.now();
-
   function frame(now) {{
     const dt = (now - lt) / 1000;
     lt = now;
-
-    for (let si = 0; si < allTrails.length; si++) {{
-      const s = allTrails[si];
-
-      // WAITING
-      if (s.state === WAITING) {{
-        if (now >= s.waitUntil) {{
-          const ns = newTrail(s.colIdx, false);
-          ns.lastSpawn = now;
-          allTrails[si] = ns;
-        }}
-        continue;
-      }}
-
-      // RUNNING - move head, spawn words
-      if (s.state === RUNNING) {{
-        const mv = s.speed * dt;
-        s.headY += mv;
-        s.traveled += mv;
-
-        if (now - s.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
-          const word = pick(s.lastWord);
-          s.lastWord = word;
-          const el = document.createElement('div');
-          el.className = 'w';
-          el.textContent = word;
-          el.style.left = s.x + 'px';
-          el.style.top = s.headY + 'px';
-          C.appendChild(el);
-          s.drops.push({{ el: el, y: s.headY }});
-          s.lastSpawn = now;
-        }}
-
-        if (s.traveled >= s.maxTravel) {{
-          s.state = DRAINING;
-        }}
-      }}
-
-      // Style drops
-      for (let i = s.drops.length - 1; i >= 0; i--) {{
-        const d = s.drops[i];
-        const dist = (s.headY - d.y) / lnH;
-
-        if (dist <= 0.5) {{
-          d.el.style.color = '#fff';
-          d.el.style.textShadow = '0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff';
-          d.el.style.opacity = '1';
-        }} else if (dist <= trailLen * 0.25) {{
-          d.el.style.color = '#00ff41';
-          d.el.style.textShadow = '0 0 10px #00ff41,0 0 3px #00cc33';
-          d.el.style.opacity = (bri * 0.95).toFixed(2);
-        }} else if (dist <= trailLen * 0.6) {{
-          const f = (dist - trailLen * 0.25) / (trailLen * 0.35);
-          d.el.style.color = '#00aa30';
-          d.el.style.textShadow = '0 0 4px #00882a';
-          d.el.style.opacity = Math.max(0.08, bri * (0.7 - f * 0.4)).toFixed(2);
-        }} else if (dist <= trailLen) {{
-          const f = (dist - trailLen * 0.6) / (trailLen * 0.4);
-          d.el.style.color = '#005a15';
-          d.el.style.textShadow = 'none';
-          d.el.style.opacity = Math.max(0.02, 0.15 - f * 0.13).toFixed(2);
-        }} else {{
-          d.el.remove();
-          s.drops.splice(i, 1);
-          continue;
-        }}
-      }}
-
-      // DRAINING - keep head moving so trail scrolls off
-      if (s.state === DRAINING) {{
-        s.headY += s.speed * dt;
-        if (s.drops.length === 0) {{
-          s.state = WAITING;
-          s.waitUntil = now + respawnMs * (0.3 + Math.random() * 0.7);
-        }}
-      }}
+    for (let i = 0; i < columns.length; i++) {{
+      columns[i].update(now, dt);
     }}
-
     requestAnimationFrame(frame);
   }}
-
   requestAnimationFrame(frame);
 }})();
 </script>
