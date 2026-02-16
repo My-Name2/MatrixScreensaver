@@ -17,6 +17,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Layout")
 num_columns = st.sidebar.slider("Number of streams", 8, 60, 28)
 font_size = st.sidebar.slider("Font size (px)", 8, 22, 13)
+trails_per_col = st.sidebar.slider("Trails per column", 1, 4, 2)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Speed")
@@ -28,7 +29,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Style")
 brightness = st.sidebar.slider("Glow brightness", 0.3, 1.0, 0.8, 0.05)
 trail_length = st.sidebar.slider("Trail length (words)", 3, 25, 12)
-respawn_delay = st.sidebar.slider("Respawn delay (sec)", 0.0, 3.0, 0.3, 0.1)
+respawn_delay = st.sidebar.slider("Respawn delay (sec)", 0.0, 3.0, 0.2, 0.1)
 
 if st.sidebar.button("🔄 Regenerate", use_container_width=True):
     st.rerun()
@@ -88,6 +89,7 @@ html = f"""
 (function() {{
   const words = {words_json};
   const numCols = {num_columns};
+  const trailsPerCol = {trails_per_col};
   const baseSpeed = {base_speed};
   const speedVar = {speed_variance};
   const bri = {brightness};
@@ -100,7 +102,6 @@ html = f"""
   const colW = W / numCols;
   const lnH = {font_size} * 1.6;
 
-  // States: 'running' | 'draining' | 'waiting'
   const RUNNING = 0, DRAINING = 1, WAITING = 2;
 
   function pick(last) {{
@@ -111,29 +112,40 @@ html = f"""
     return w;
   }}
 
-  function makeStream(i, initial) {{
+  function newTrail(colIdx, initial) {{
     const v = (Math.random() - 0.5) * 2 * speedVar;
     const spd = H / Math.max(0.5, baseSpeed + v);
+    let startY;
+    if (initial) {{
+      startY = Math.random() * H;
+    }} else {{
+      startY = Math.random() < 0.4 ? -lnH : Math.random() * H * 0.2;
+    }}
     return {{
-      x: i * colW,
-      headY: initial ? Math.random() * H : (Math.random() < 0.4 ? -lnH : Math.random() * H * 0.25),
+      colIdx: colIdx,
+      x: colIdx * colW,
+      headY: startY,
       speed: spd,
       drops: [],
       lastWord: '',
       lastSpawn: 0,
       state: RUNNING,
-      maxTravel: H * (0.4 + Math.random() * 1.2),
+      maxTravel: H * (0.3 + Math.random() * 1.0),
       traveled: 0,
       waitUntil: 0
     }};
   }}
 
-  const streams = [];
-  for (let i = 0; i < numCols; i++) {{
-    const s = makeStream(i, true);
-    // Stagger initial spawns
-    s.lastSpawn = -Math.random() * spawnMs * 5;
-    streams.push(s);
+  // Create multiple trails per column, staggered
+  const allTrails = [];
+  for (let col = 0; col < numCols; col++) {{
+    for (let t = 0; t < trailsPerCol; t++) {{
+      const tr = newTrail(col, true);
+      // Stagger the multiple trails within a column
+      tr.headY = Math.random() * H * (0.3 + t * 0.5 / trailsPerCol) + t * (H / trailsPerCol) * Math.random();
+      tr.lastSpawn = -Math.random() * spawnMs * 5;
+      allTrails.push(tr);
+    }}
   }}
 
   let lt = performance.now();
@@ -142,26 +154,25 @@ html = f"""
     const dt = (now - lt) / 1000;
     lt = now;
 
-    for (let si = 0; si < streams.length; si++) {{
-      const s = streams[si];
+    for (let si = 0; si < allTrails.length; si++) {{
+      const s = allTrails[si];
 
-      // WAITING state - just check timer
+      // WAITING
       if (s.state === WAITING) {{
         if (now >= s.waitUntil) {{
-          const ns = makeStream(si, false);
+          const ns = newTrail(s.colIdx, false);
           ns.lastSpawn = now;
-          streams[si] = ns;
+          allTrails[si] = ns;
         }}
         continue;
       }}
 
-      // RUNNING - move head and spawn words
+      // RUNNING - move head, spawn words
       if (s.state === RUNNING) {{
         const mv = s.speed * dt;
         s.headY += mv;
         s.traveled += mv;
 
-        // Spawn new word at head
         if (now - s.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
           const word = pick(s.lastWord);
           s.lastWord = word;
@@ -175,13 +186,12 @@ html = f"""
           s.lastSpawn = now;
         }}
 
-        // Switch to draining when done
         if (s.traveled >= s.maxTravel) {{
           s.state = DRAINING;
         }}
       }}
 
-      // Style & cleanup drops (both RUNNING and DRAINING)
+      // Style drops
       for (let i = s.drops.length - 1; i >= 0; i--) {{
         const d = s.drops[i];
         const dist = (s.headY - d.y) / lnH;
@@ -195,31 +205,28 @@ html = f"""
           d.el.style.textShadow = '0 0 10px #00ff41,0 0 3px #00cc33';
           d.el.style.opacity = (bri * 0.95).toFixed(2);
         }} else if (dist <= trailLen * 0.6) {{
-          const t = (dist - trailLen * 0.25) / (trailLen * 0.35);
+          const f = (dist - trailLen * 0.25) / (trailLen * 0.35);
           d.el.style.color = '#00aa30';
           d.el.style.textShadow = '0 0 4px #00882a';
-          d.el.style.opacity = Math.max(0.08, bri * (0.7 - t * 0.4)).toFixed(2);
+          d.el.style.opacity = Math.max(0.08, bri * (0.7 - f * 0.4)).toFixed(2);
         }} else if (dist <= trailLen) {{
-          const t = (dist - trailLen * 0.6) / (trailLen * 0.4);
+          const f = (dist - trailLen * 0.6) / (trailLen * 0.4);
           d.el.style.color = '#005a15';
           d.el.style.textShadow = 'none';
-          d.el.style.opacity = Math.max(0.02, 0.15 - t * 0.13).toFixed(2);
+          d.el.style.opacity = Math.max(0.02, 0.15 - f * 0.13).toFixed(2);
         }} else {{
-          // Past trail - remove immediately
           d.el.remove();
           s.drops.splice(i, 1);
           continue;
         }}
       }}
 
-      // DRAINING: keep moving head so trail scrolls off, then go to WAITING
+      // DRAINING - keep head moving so trail scrolls off
       if (s.state === DRAINING) {{
-        const mv = s.speed * dt;
-        s.headY += mv;
-
+        s.headY += s.speed * dt;
         if (s.drops.length === 0) {{
           s.state = WAITING;
-          s.waitUntil = now + respawnMs * (0.5 + Math.random());
+          s.waitUntil = now + respawnMs * (0.3 + Math.random() * 0.7);
         }}
       }}
     }}
