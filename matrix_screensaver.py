@@ -103,10 +103,31 @@ html = f"""
     background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%);
     pointer-events: none; z-index: 11;
   }}
+  #fsBtn {{
+    position: fixed;
+    top: 12px; right: 14px;
+    z-index: 100;
+    background: rgba(0,20,0,0.75);
+    border: 1px solid #00ff41;
+    color: #00ff41;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    transition: background 0.2s, box-shadow 0.2s;
+    pointer-events: all;
+  }}
+  #fsBtn:hover {{
+    background: rgba(0,60,0,0.9);
+    box-shadow: 0 0 8px #00ff41;
+  }}
 </style>
 </head>
 <body>
 <div id="matrix"></div>
+<button id="fsBtn" title="Toggle fullscreen">⛶ FULLSCREEN</button>
 <script>
 (function() {{
   const words = {words_json};
@@ -303,6 +324,26 @@ html = f"""
     requestAnimationFrame(frame);
   }}
   requestAnimationFrame(frame);
+
+  // --- Fullscreen ---
+  const fsBtn = document.getElementById('fsBtn');
+  function updateBtnLabel() {{
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    fsBtn.textContent = isFs ? '✕ EXIT FULL' : '⛶ FULLSCREEN';
+  }}
+  fsBtn.addEventListener('click', function() {{
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFs) {{
+      const el = document.documentElement;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }} else {{
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }}
+  }});
+  document.addEventListener('fullscreenchange', updateBtnLabel);
+  document.addEventListener('webkitfullscreenchange', updateBtnLabel);
 }})();
 </script>
 </body>
