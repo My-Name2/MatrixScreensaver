@@ -579,13 +579,11 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
 <\\/script></body></html>`;
   }}
 
-  let overlay = null;
-  let closeBtn = null;
-
   window.closeMatrixFS = function() {{
+    const overlay = document.getElementById('matrix-fs-overlay');
+    const closeBtn = document.getElementById('matrix-fs-close');
     if (overlay) {{
       overlay.classList.remove('active');
-      // Only message the overlay's own iframe, not every Streamlit iframe
       const fsIframe = overlay.querySelector('iframe');
       if (fsIframe && fsIframe.contentWindow) {{
         fsIframe.contentWindow.postMessage({{type: 'MATRIX_FS_CLOSED'}}, '*');
@@ -597,10 +595,9 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
   window.addEventListener('message', (e) => {{
     if (!e.data) return;
     if (e.data.type === 'MATRIX_FS_OPEN') {{
-      if (!overlay) {{
-        overlay = document.getElementById('matrix-fs-overlay');
-        closeBtn = document.getElementById('matrix-fs-close');
-      }}
+      const overlay = document.getElementById('matrix-fs-overlay');
+      const closeBtn = document.getElementById('matrix-fs-close');
+      if (!overlay) return;
       // Build the standalone HTML and load it into the overlay iframe
       const html = buildStandaloneHTML();
       let fsIframe = overlay.querySelector('iframe');
