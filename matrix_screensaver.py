@@ -109,10 +109,51 @@ html = f"""
     background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%);
     pointer-events: none; z-index: 11;
   }}
+  #fsBtn {{
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 100;
+    background: rgba(0,20,0,0.75);
+    border: 1px solid #00ff41;
+    color: #00ff41;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 12px;
+    padding: 7px 13px;
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 0.08em;
+    text-shadow: 0 0 8px #00ff41;
+    box-shadow: 0 0 10px rgba(0,255,65,0.2);
+    transition: background 0.15s, box-shadow 0.15s;
+    user-select: none;
+  }}
+  #fsBtn:hover {{
+    background: rgba(0,40,0,0.9);
+    box-shadow: 0 0 18px rgba(0,255,65,0.45);
+  }}
+  #fsHint {{
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    color: rgba(0,255,65,0.45);
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }}
+  :fullscreen #fsBtn {{ bottom: 22px; right: 22px; }}
+  :-webkit-full-screen #fsBtn {{ bottom: 22px; right: 22px; }}
 </style>
 </head>
 <body>
 <div id="matrix"></div>
+<button id="fsBtn" title="Fullscreen (F)">⛶ FULLSCREEN</button>
+<div id="fsHint">press ESC to exit fullscreen</div>
 <script>
 (function() {{
   const words = {words_json};
@@ -360,6 +401,43 @@ html = f"""
     requestAnimationFrame(frame);
   }}
   requestAnimationFrame(frame);
+
+  // --- Fullscreen ---
+  const fsBtn = document.getElementById('fsBtn');
+  const fsHint = document.getElementById('fsHint');
+  let hintTimer = null;
+
+  function showHint() {{
+    fsHint.style.opacity = '1';
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => {{ fsHint.style.opacity = '0'; }}, 2800);
+  }}
+
+  function toggleFS() {{
+    const el = document.documentElement;
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+    if (!isFS) {{
+      const rq = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+      if (rq) {{ rq.call(el); showHint(); }}
+    }} else {{
+      const ex = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+      if (ex) ex.call(document);
+    }}
+  }}
+
+  fsBtn.addEventListener('click', toggleFS);
+
+  document.addEventListener('keydown', (e) => {{
+    if (e.key === 'f' || e.key === 'F') toggleFS();
+  }});
+
+  function onFSChange() {{
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+    fsBtn.textContent = isFS ? '✕ EXIT FULL' : '⛶ FULLSCREEN';
+  }}
+  document.addEventListener('fullscreenchange', onFSChange);
+  document.addEventListener('webkitfullscreenchange', onFSChange);
+  document.addEventListener('mozfullscreenchange', onFSChange);
 }})();
 </script>
 </body>
