@@ -14,7 +14,7 @@ words_input = st.sidebar.text_area(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Layout")a
+st.sidebar.markdown("### Layout")
 num_columns = st.sidebar.slider("Number of streams", 8, 60, 28)
 font_size = st.sidebar.slider("Font size (px)", 8, 22, 13)
 trails_per_col = st.sidebar.slider("Trails per column", 1, 4, 2)
