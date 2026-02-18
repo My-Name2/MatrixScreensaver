@@ -583,11 +583,15 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
   let closeBtn = null;
 
   window.closeMatrixFS = function() {{
-    if (overlay) {{ overlay.classList.remove('active'); }}
+    if (overlay) {{
+      overlay.classList.remove('active');
+      // Only message the overlay's own iframe, not every Streamlit iframe
+      const fsIframe = overlay.querySelector('iframe');
+      if (fsIframe && fsIframe.contentWindow) {{
+        fsIframe.contentWindow.postMessage({{type: 'MATRIX_FS_CLOSED'}}, '*');
+      }}
+    }}
     if (closeBtn) {{ closeBtn.classList.remove('active'); }}
-    // Notify the inner iframe it was closed
-    const iframes = document.querySelectorAll('iframe');
-    iframes.forEach(f => f.contentWindow && f.contentWindow.postMessage({{type: 'MATRIX_FS_CLOSED'}}, '*'));
   }};
 
   window.addEventListener('message', (e) => {{
