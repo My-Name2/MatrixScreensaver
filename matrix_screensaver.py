@@ -592,13 +592,18 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
     if (closeBtn) {{ closeBtn.classList.remove('active'); }}
   }};
 
+  let _blobUrl = null;
+
   window.addEventListener('message', (e) => {{
     if (!e.data) return;
     if (e.data.type === 'MATRIX_FS_OPEN') {{
       const overlay = document.getElementById('matrix-fs-overlay');
       const closeBtn = document.getElementById('matrix-fs-close');
-      if (!overlay) return;
-      // Build the standalone HTML and load it into the overlay iframe
+      if (!overlay || !closeBtn) return;
+
+      // Revoke previous blob URL to avoid memory leak
+      if (_blobUrl) {{ URL.revokeObjectURL(_blobUrl); _blobUrl = null; }}
+
       const html = buildStandaloneHTML();
       let fsIframe = overlay.querySelector('iframe');
       if (!fsIframe) {{
@@ -607,22 +612,31 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
         overlay.appendChild(fsIframe);
       }}
       const blob = new Blob([html], {{type: 'text/html'}});
-      fsIframe.src = URL.createObjectURL(blob);
+      _blobUrl = URL.createObjectURL(blob);
+      fsIframe.src = _blobUrl;
       overlay.classList.add('active');
       closeBtn.classList.add('active');
-      // Also try native fullscreen on the overlay element
+
+      // Request native fullscreen with proper Promise handling
       const rq = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
-      if (rq) rq.call(overlay);
+      if (rq) rq.call(overlay).catch(() => {{}});  // swallow rejection silently
+
     }} else if (e.data.type === 'MATRIX_FS_CLOSE' || e.data.type === 'MATRIX_FS_CLOSE_FROM_OVERLAY') {{
       window.closeMatrixFS();
-      const ex = document.exitFullscreen || document.webkitExitFullscreen;
-      if (ex && (document.fullscreenElement || document.webkitFullscreenElement)) ex.call(document);
+      const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+      if (isFS) {{
+        const ex = document.exitFullscreen || document.webkitExitFullscreen;
+        if (ex) ex.call(document).catch(() => {{}});
+      }}
     }}
   }});
 
-  // ESC key on parent page
+  // ESC on parent — only act if overlay is actually visible (browser handles native FS exit itself)
   document.addEventListener('keydown', (e) => {{
-    if (e.key === 'Escape') window.closeMatrixFS();
+    if (e.key === 'Escape') {{
+      const overlay = document.getElementById('matrix-fs-overlay');
+      if (overlay && overlay.classList.contains('active')) window.closeMatrixFS();
+    }}
   }});
 }})();
 </script>
