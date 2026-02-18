@@ -449,45 +449,57 @@ html = f"""
 
 st.components.v1.html(html, height=750, scrolling=False)
 
-parent_fs_script = f"""
+parent_css = """
 <style>
-.stApp {{ background-color: #000000 !important; }}
-header[data-testid="stHeader"] {{ background-color: #000000 !important; }}
-footer {{ display: none !important; }}
-.stDeployButton {{ display: none !important; }}
-section[data-testid="stSidebar"] {{
+.stApp { background-color: #000000 !important; }
+header[data-testid="stHeader"] { background-color: #000000 !important; }
+footer { display: none !important; }
+.stDeployButton { display: none !important; }
+section[data-testid="stSidebar"] {
     background-color: #050f05 !important;
     border-right: 1px solid #003300 !important;
-}}
-section[data-testid="stSidebar"] * {{ color: #00dd38 !important; }}
-section[data-testid="stSidebar"] textarea {{
+}
+section[data-testid="stSidebar"] * { color: #00dd38 !important; }
+section[data-testid="stSidebar"] textarea {
     background-color: #001a00 !important;
     color: #00ff41 !important;
     border-color: #003300 !important;
     font-family: 'Courier New', monospace !important;
-}}
-section[data-testid="stSidebar"] button {{
+}
+section[data-testid="stSidebar"] button {
     background-color: #002200 !important;
     color: #00ff41 !important;
     border: 1px solid #00ff41 !important;
-}}
-section[data-testid="stSidebar"] button:hover {{
+}
+section[data-testid="stSidebar"] button:hover {
     background-color: #003300 !important;
-}}
-iframe {{ border: none !important; }}
-#matrix-fs-overlay {{
+}
+iframe { border: none !important; }
+</style>
+"""
+st.markdown(parent_css, unsafe_allow_html=True)
+
+# Inject the fullscreen overlay + JS into the parent page via a zero-height component
+parent_fs_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * {{ margin: 0; padding: 0; }}
+  body {{ background: transparent; overflow: hidden; height: 0; }}
+  #matrix-fs-overlay {{
     display: none;
     position: fixed;
     top: 0; left: 0; width: 100vw; height: 100vh;
     z-index: 999999;
     background: #000;
-}}
-#matrix-fs-overlay.active {{ display: block; }}
-#matrix-fs-overlay iframe {{
+  }}
+  #matrix-fs-overlay.active {{ display: block; }}
+  #matrix-fs-overlay iframe {{
     width: 100%; height: 100%;
     border: none;
-}}
-#matrix-fs-close {{
+  }}
+  #matrix-fs-close {{
     position: fixed;
     bottom: 22px; right: 22px;
     z-index: 9999999;
@@ -502,16 +514,15 @@ iframe {{ border: none !important; }}
     letter-spacing: 0.08em;
     text-shadow: 0 0 8px #00ff41;
     display: none;
-}}
-#matrix-fs-close.active {{ display: block; }}
+  }}
+  #matrix-fs-close.active {{ display: block; }}
 </style>
-
+</head>
+<body>
 <div id="matrix-fs-overlay"></div>
-<button id="matrix-fs-close" onclick="closeMatrixFS()">✕ EXIT FULL</button>
-
+<button id="matrix-fs-close" onclick="closeMatrixFS()">&#x2715; EXIT FULL</button>
 <script>
 (function() {{
-  // The standalone matrix HTML — a self-contained copy that runs independently
   const WORDS = {words_json};
   const NUM_COLS = {num_columns};
   const FONT_SIZE = {font_size};
@@ -529,19 +540,7 @@ iframe {{ border: none !important; }}
   const RAINBOW_SPEED = {rainbow_speed};
 
   function buildStandaloneHTML() {{
-    return `<!DOCTYPE html><html><head>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-*{{margin:0;padding:0;box-sizing:border-box;}}
-body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Share Tech Mono','Courier New',monospace;}}
-#matrix{{position:relative;width:100%;height:100vh;overflow:hidden;background:radial-gradient(ellipse at center,#000d00 0%,#000 70%);}}
-.w{{position:absolute;white-space:nowrap;font-size:${{FONT_SIZE}}px;line-height:1;pointer-events:none;}}
-#matrix::after{{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.12) 0px,rgba(0,0,0,0.12) 1px,transparent 1px,transparent 3px);pointer-events:none;z-index:10;}}
-#matrix::before{{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,0.5) 100%);pointer-events:none;z-index:11;}}
-</style></head><body>
-<div id="matrix"></div>
-<script>
-(function(){{
+    const script = `(function(){{
   const words=${{JSON.stringify(WORDS)}};
   const numCols=${{NUM_COLS}};
   const maxTrails=${{TRAILS_PER_COL}};
@@ -562,21 +561,32 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
   const gapPx=gapWords*lnH;
   function getColumnHue(i,now){{return((now/1000/RAINBOW_SPEED*360)+(i*(360/numCols)))%360;}}
   function hslToRgb(h,s,l){{h/=360;s/=100;l/=100;let r,g,b;if(s===0){{r=g=b=l;}}else{{const h2=(p,q,t)=>{{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;}};const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;r=h2(p,q,h+1/3);g=h2(p,q,h);b=h2(p,q,h-1/3);}}return[Math.round(r*255),Math.round(g*255),Math.round(b*255)];}}
-  function getColors(ci,now){{if(COLOR_MODE==='green'){{return{{head:'#fff',headShadow:'0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff',bright:'#00ff41',brightShadow:'0 0 10px #00ff41,0 0 3px #00cc33',mid:'#00aa30',midShadow:'0 0 4px #00882a',dim:'#005a15'}};}}else if(COLOR_MODE==='solid'){{const rr=SOLID_R,gg=SOLID_G,bb=SOLID_B;const full=\`rgb(${{rr}},${{gg}},${{bb}})\`;const mr=Math.round(rr*.67),mg=Math.round(gg*.67),mb=Math.round(bb*.67);const dr=Math.round(rr*.35),dg=Math.round(gg*.35),db=Math.round(bb*.35);return{{head:'#fff',headShadow:\`0 0 14px ${{full}},0 0 30px ${{full}},0 0 5px #fff\`,bright:full,brightShadow:\`0 0 10px ${{full}},0 0 3px rgb(${{mr}},${{mg}},${{mb}})\`,mid:\`rgb(${{mr}},${{mg}},${{mb}})\`,midShadow:\`0 0 4px rgb(${{dr}},${{dg}},${{db}})\`,dim:\`rgb(${{dr}},${{dg}},${{db}})\`}};}}else{{const hue=getColumnHue(ci,now);const[rr,gg,bb]=hslToRgb(hue,100,50);const[mr,mg,mb]=hslToRgb(hue,90,35);const[dr,dg,db]=hslToRgb(hue,80,18);const full=\`rgb(${{rr}},${{gg}},${{bb}})\`;return{{head:'#fff',headShadow:\`0 0 14px ${{full}},0 0 30px ${{full}},0 0 5px #fff\`,bright:full,brightShadow:\`0 0 10px ${{full}},0 0 3px rgb(${{mr}},${{mg}},${{mb}})\`,mid:\`rgb(${{mr}},${{mg}},${{mb}})\`,midShadow:\`0 0 4px rgb(${{dr}},${{dg}},${{db}})\`,dim:\`rgb(${{dr}},${{dg}},${{db}})\`}};}}}}
+  function getColors(ci,now){{if(COLOR_MODE==='green'){{return{{head:'#fff',headShadow:'0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff',bright:'#00ff41',brightShadow:'0 0 10px #00ff41,0 0 3px #00cc33',mid:'#00aa30',midShadow:'0 0 4px #00882a',dim:'#005a15'}};}}else if(COLOR_MODE==='solid'){{const rr=SOLID_R,gg=SOLID_G,bb=SOLID_B;const full='rgb('+rr+','+gg+','+bb+')';const mr=Math.round(rr*.67),mg=Math.round(gg*.67),mb=Math.round(bb*.67);const dr=Math.round(rr*.35),dg=Math.round(gg*.35),db=Math.round(bb*.35);return{{head:'#fff',headShadow:'0 0 14px '+full+',0 0 30px '+full+',0 0 5px #fff',bright:full,brightShadow:'0 0 10px '+full+',0 0 3px rgb('+mr+','+mg+','+mb+')',mid:'rgb('+mr+','+mg+','+mb+')',midShadow:'0 0 4px rgb('+dr+','+dg+','+db+')',dim:'rgb('+dr+','+dg+','+db+')'}};}}else{{const hue=getColumnHue(ci,now);const rgb1=hslToRgb(hue,100,50);const rgb2=hslToRgb(hue,90,35);const rgb3=hslToRgb(hue,80,18);const full='rgb('+rgb1[0]+','+rgb1[1]+','+rgb1[2]+')';return{{head:'#fff',headShadow:'0 0 14px '+full+',0 0 30px '+full+',0 0 5px #fff',bright:full,brightShadow:'0 0 10px '+full+',0 0 3px rgb('+rgb2[0]+','+rgb2[1]+','+rgb2[2]+')',mid:'rgb('+rgb2[0]+','+rgb2[1]+','+rgb2[2]+')',midShadow:'0 0 4px rgb('+rgb3[0]+','+rgb3[1]+','+rgb3[2]+')',dim:'rgb('+rgb3[0]+','+rgb3[1]+','+rgb3[2]+')'}};}}}}
   function pick(last){{let w=words[Math.floor(Math.random()*words.length)];let t=0;while(w===last&&words.length>1&&t++<10)w=words[Math.floor(Math.random()*words.length)];return w;}}
   function Trail(x,ci){{const v=(Math.random()-.5)*2*speedVar;this.x=x;this.colIndex=ci;this.headY=-lnH;this.speed=H/Math.max(.5,baseSpeed+v);this.drops=[];this.lastWord='';this.lastSpawn=0;this.maxTravel=H*(.4+Math.random()*1.0);this.traveled=0;this.done=false;this.dead=false;}}
   Trail.prototype.tailY=function(){{return this.drops.length===0?this.headY:this.drops[0].y;}};
-  Trail.prototype.update=function(now,dt){{const mv=this.speed*dt;this.headY+=mv;this.traveled+=mv;if(!this.done&&now-this.lastSpawn>=spawnMs*(.7+Math.random()*.6)){{const word=pick(this.lastWord);this.lastWord=word;const el=document.createElement('div');el.className='w';el.textContent=word;el.style.left=this.x+'px';el.style.top=this.headY+'px';C.appendChild(el);this.drops.push({{el,y:this.headY}});this.lastSpawn=now;}}if(!this.done&&this.traveled>=this.maxTravel)this.done=true;const colors=getColors(this.colIndex,now);for(let i=this.drops.length-1;i>=0;i--){{const d=this.drops[i];const dist=(this.headY-d.y)/lnH;if(dist<=.5){{d.el.style.color=colors.head;d.el.style.textShadow=colors.headShadow;d.el.style.opacity='1';}}else if(dist<=trailLen*.25){{d.el.style.color=colors.bright;d.el.style.textShadow=colors.brightShadow;d.el.style.opacity=(bri*.95).toFixed(2);}}else if(dist<=trailLen*.6){{const f=(dist-trailLen*.25)/(trailLen*.35);d.el.style.color=colors.mid;d.el.style.textShadow=colors.midShadow;d.el.style.opacity=Math.max(.08,bri*(.7-f*.4)).toFixed(2);}}else if(dist<=trailLen){{const f=(dist-trailLen*.6)/(trailLen*.4);d.el.style.color=colors.dim;d.el.style.textShadow='none';d.el.style.opacity=Math.max(.02,.15-f*.13).toFixed(2);}}else{{d.el.remove();this.drops.splice(i,1);}}}}if(this.done&&this.drops.length===0)this.dead=true;}};
+  Trail.prototype.update=function(now,dt){{const mv=this.speed*dt;this.headY+=mv;this.traveled+=mv;if(!this.done&&now-this.lastSpawn>=spawnMs*(.7+Math.random()*.6)){{const word=pick(this.lastWord);this.lastWord=word;const el=document.createElement('div');el.className='w';el.textContent=word;el.style.left=this.x+'px';el.style.top=this.headY+'px';C.appendChild(el);this.drops.push({{el:el,y:this.headY}});this.lastSpawn=now;}}if(!this.done&&this.traveled>=this.maxTravel)this.done=true;const colors=getColors(this.colIndex,now);for(let i=this.drops.length-1;i>=0;i--){{const d=this.drops[i];const dist=(this.headY-d.y)/lnH;if(dist<=.5){{d.el.style.color=colors.head;d.el.style.textShadow=colors.headShadow;d.el.style.opacity='1';}}else if(dist<=trailLen*.25){{d.el.style.color=colors.bright;d.el.style.textShadow=colors.brightShadow;d.el.style.opacity=(bri*.95).toFixed(2);}}else if(dist<=trailLen*.6){{const f=(dist-trailLen*.25)/(trailLen*.35);d.el.style.color=colors.mid;d.el.style.textShadow=colors.midShadow;d.el.style.opacity=Math.max(.08,bri*(.7-f*.4)).toFixed(2);}}else if(dist<=trailLen){{const f=(dist-trailLen*.6)/(trailLen*.4);d.el.style.color=colors.dim;d.el.style.textShadow='none';d.el.style.opacity=Math.max(.02,.15-f*.13).toFixed(2);}}else{{d.el.remove();this.drops.splice(i,1);}}}}if(this.done&&this.drops.length===0)this.dead=true;}};
   function Column(idx){{this.index=idx;this.x=idx*colW;this.trails=[];const t=new Trail(this.x,idx);t.headY=Math.random()*H;t.lastSpawn=-Math.random()*spawnMs*3;this.trails.push(t);}}
   Column.prototype.update=function(now,dt){{for(let i=this.trails.length-1;i>=0;i--){{this.trails[i].update(now,dt);if(this.trails[i].dead)this.trails.splice(i,1);}}if(this.trails.length<maxTrails){{let ok=true;if(this.trails.length>0){{let lh=-Infinity;for(let i=0;i<this.trails.length;i++)if(this.trails[i].headY>lh)lh=this.trails[i].headY;if(lh-trailLen*lnH<gapPx)ok=false;}}if(ok){{const t=new Trail(this.x,this.index);t.headY=-lnH;t.lastSpawn=now;this.trails.push(t);}}}}if(this.trails.length===0){{const t=new Trail(this.x,this.index);t.headY=-lnH;t.lastSpawn=now;this.trails.push(t);}}}};
   const cols=[];for(let i=0;i<numCols;i++)cols.push(new Column(i));
   let lt=performance.now();
   function frame(now){{const dt=(now-lt)/1000;lt=now;for(let i=0;i<cols.length;i++)cols[i].update(now,dt);requestAnimationFrame(frame);}}
   requestAnimationFrame(frame);
-  // ESC key closes overlay
-  document.addEventListener('keydown',(e)=>{{if(e.key==='Escape')window.parent.postMessage({{type:'MATRIX_FS_CLOSE_FROM_OVERLAY'}},'*');}});
-}})();
-<\\/script></body></html>`;
+  document.addEventListener('keydown',function(e){{if(e.key==='Escape')window.parent.postMessage({{type:'MATRIX_FS_CLOSE_FROM_OVERLAY'}},'*');}});
+}})();`;
+
+    const css = `@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Share Tech Mono','Courier New',monospace;}}
+#matrix{{position:relative;width:100%;height:100vh;overflow:hidden;background:radial-gradient(ellipse at center,#000d00 0%,#000 70%);}}
+.w{{position:absolute;white-space:nowrap;font-size:${{FONT_SIZE}}px;line-height:1;pointer-events:none;}}
+#matrix::after{{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.12) 0px,rgba(0,0,0,0.12) 1px,transparent 1px,transparent 3px);pointer-events:none;z-index:10;}}
+#matrix::before{{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,0.5) 100%);pointer-events:none;z-index:11;}}`;
+
+    return '<!DOCTYPE html><html><head><style>' + css + '</style></head><body>'
+      + '<div id="matrix"></div>'
+      + '<script>' + script + '<' + '/script>'
+      + '</body></html>';
   }}
 
   window.closeMatrixFS = function() {{
@@ -594,16 +604,13 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
 
   let _blobUrl = null;
 
-  window.addEventListener('message', (e) => {{
+  window.addEventListener('message', function(e) {{
     if (!e.data) return;
     if (e.data.type === 'MATRIX_FS_OPEN') {{
       const overlay = document.getElementById('matrix-fs-overlay');
       const closeBtn = document.getElementById('matrix-fs-close');
       if (!overlay || !closeBtn) return;
-
-      // Revoke previous blob URL to avoid memory leak
       if (_blobUrl) {{ URL.revokeObjectURL(_blobUrl); _blobUrl = null; }}
-
       const html = buildStandaloneHTML();
       let fsIframe = overlay.querySelector('iframe');
       if (!fsIframe) {{
@@ -616,23 +623,19 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
       fsIframe.src = _blobUrl;
       overlay.classList.add('active');
       closeBtn.classList.add('active');
-
-      // Request native fullscreen with proper Promise handling
       const rq = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
-      if (rq) rq.call(overlay).catch(() => {{}});  // swallow rejection silently
-
+      if (rq) rq.call(overlay).catch(function() {{}});
     }} else if (e.data.type === 'MATRIX_FS_CLOSE' || e.data.type === 'MATRIX_FS_CLOSE_FROM_OVERLAY') {{
       window.closeMatrixFS();
       const isFS = document.fullscreenElement || document.webkitFullscreenElement;
       if (isFS) {{
         const ex = document.exitFullscreen || document.webkitExitFullscreen;
-        if (ex) ex.call(document).catch(() => {{}});
+        if (ex) ex.call(document).catch(function() {{}});
       }}
     }}
   }});
 
-  // ESC on parent — only act if overlay is actually visible (browser handles native FS exit itself)
-  document.addEventListener('keydown', (e) => {{
+  document.addEventListener('keydown', function(e) {{
     if (e.key === 'Escape') {{
       const overlay = document.getElementById('matrix-fs-overlay');
       if (overlay && overlay.classList.contains('active')) window.closeMatrixFS();
@@ -640,6 +643,8 @@ body,html{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'S
   }});
 }})();
 </script>
+</body>
+</html>
 """
 
-st.markdown(parent_fs_script, unsafe_allow_html=True)
+st.components.v1.html(parent_fs_html, height=0, scrolling=False)
