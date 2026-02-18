@@ -31,6 +31,18 @@ st.sidebar.markdown("### Style")
 brightness = st.sidebar.slider("Glow brightness", 0.3, 1.0, 0.8, 0.05)
 trail_length = st.sidebar.slider("Trail length (words)", 3, 25, 12)
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎨 Color Mode")
+color_mode = st.sidebar.radio("Color Mode", ["Classic Green", "Solid Color", "Rainbow"])
+
+solid_color = "#00ff41"
+rainbow_speed = 3.0
+
+if color_mode == "Solid Color":
+    solid_color = st.sidebar.color_picker("Pick a color", "#00ff41")
+elif color_mode == "Rainbow":
+    rainbow_speed = st.sidebar.slider("Rainbow cycle speed (sec)", 0.5, 10.0, 3.0, 0.5)
+
 if st.sidebar.button("🔄 Regenerate", use_container_width=True):
     st.rerun()
 
@@ -41,6 +53,22 @@ if not words:
     words = ["essential"]
 
 words_json = json.dumps(words)
+
+# Convert hex color to RGB for JS
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return r, g, b
+
+r, g, b = hex_to_rgb(solid_color)
+
+color_mode_js = "green"
+if color_mode == "Solid Color":
+    color_mode_js = "solid"
+elif color_mode == "Rainbow":
+    color_mode_js = "rainbow"
 
 html = f"""
 <!DOCTYPE html>
@@ -103,6 +131,86 @@ html = f"""
   const lnH = {font_size} * 1.6;
   const gapPx = gapWords * lnH;
 
+  // Color mode settings
+  const COLOR_MODE = '{color_mode_js}';
+  const SOLID_R = {r};
+  const SOLID_G = {g};
+  const SOLID_B = {b};
+  const RAINBOW_SPEED = {rainbow_speed}; // seconds per full cycle
+
+  // Assign a hue offset per column for rainbow
+  function getColumnHue(colIndex, now) {{
+    const base = (now / 1000 / RAINBOW_SPEED * 360) % 360;
+    return (base + colIndex * (360 / numCols)) % 360;
+  }}
+
+  function hslToRgb(h, s, l) {{
+    h /= 360; s /= 100; l /= 100;
+    let r, g, b;
+    if (s === 0) {{ r = g = b = l; }}
+    else {{
+      const hue2rgb = (p, q, t) => {{
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      }};
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }}
+    return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+  }}
+
+  // Returns {{head, bright, mid, dim}} color strings for a given column + time
+  function getColors(colIndex, now) {{
+    if (COLOR_MODE === 'green') {{
+      return {{
+        head: '#fff',
+        headShadow: '0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff',
+        bright: '#00ff41',
+        brightShadow: '0 0 10px #00ff41,0 0 3px #00cc33',
+        mid: '#00aa30',
+        midShadow: '0 0 4px #00882a',
+        dim: '#005a15'
+      }};
+    }} else if (COLOR_MODE === 'solid') {{
+      const rr = SOLID_R, gg = SOLID_G, bb = SOLID_B;
+      const full = `rgb(${{rr}},${{gg}},${{bb}})`;
+      const mid_r = Math.round(rr*0.67), mid_g = Math.round(gg*0.67), mid_b = Math.round(bb*0.67);
+      const dim_r = Math.round(rr*0.35), dim_g = Math.round(gg*0.35), dim_b = Math.round(bb*0.35);
+      return {{
+        head: '#fff',
+        headShadow: `0 0 14px ${{full}},0 0 30px ${{full}},0 0 5px #fff`,
+        bright: full,
+        brightShadow: `0 0 10px ${{full}},0 0 3px rgb(${{mid_r}},${{mid_g}},${{mid_b}})`,
+        mid: `rgb(${{mid_r}},${{mid_g}},${{mid_b}})`,
+        midShadow: `0 0 4px rgb(${{dim_r}},${{dim_g}},${{dim_b}})`,
+        dim: `rgb(${{dim_r}},${{dim_g}},${{dim_b}})`
+      }};
+    }} else {{
+      // Rainbow
+      const hue = getColumnHue(colIndex, now);
+      const [rr, gg, bb] = hslToRgb(hue, 100, 50);
+      const [mr, mg, mb] = hslToRgb(hue, 90, 35);
+      const [dr, dg, db] = hslToRgb(hue, 80, 18);
+      const full = `rgb(${{rr}},${{gg}},${{bb}})`;
+      return {{
+        head: '#fff',
+        headShadow: `0 0 14px ${{full}},0 0 30px ${{full}},0 0 5px #fff`,
+        bright: full,
+        brightShadow: `0 0 10px ${{full}},0 0 3px rgb(${{mr}},${{mg}},${{mb}})`,
+        mid: `rgb(${{mr}},${{mg}},${{mb}})`,
+        midShadow: `0 0 4px rgb(${{dr}},${{dg}},${{db}})`,
+        dim: `rgb(${{dr}},${{dg}},${{db}})`
+      }};
+    }}
+  }}
+
   function pick(last) {{
     let w = words[Math.floor(Math.random() * words.length)];
     let t = 0;
@@ -111,10 +219,10 @@ html = f"""
     return w;
   }}
 
-  // A single trail (head + drops)
-  function Trail(x) {{
+  function Trail(x, colIndex) {{
     const v = (Math.random() - 0.5) * 2 * speedVar;
     this.x = x;
+    this.colIndex = colIndex;
     this.headY = -lnH;
     this.speed = H / Math.max(0.5, baseSpeed + v);
     this.drops = [];
@@ -122,11 +230,10 @@ html = f"""
     this.lastSpawn = 0;
     this.maxTravel = H * (0.4 + Math.random() * 1.0);
     this.traveled = 0;
-    this.done = false;    // head stopped spawning
-    this.dead = false;    // all drops cleaned up
+    this.done = false;
+    this.dead = false;
   }}
 
-  // Tail Y = the topmost (oldest) drop still alive
   Trail.prototype.tailY = function() {{
     if (this.drops.length === 0) return this.headY;
     return this.drops[0].y;
@@ -137,7 +244,6 @@ html = f"""
     this.headY += mv;
     this.traveled += mv;
 
-    // Spawn new word at head if still running
     if (!this.done && now - this.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
       const word = pick(this.lastWord);
       this.lastWord = word;
@@ -151,32 +257,32 @@ html = f"""
       this.lastSpawn = now;
     }}
 
-    // Stop spawning when traveled enough
     if (!this.done && this.traveled >= this.maxTravel) {{
       this.done = true;
     }}
 
-    // Style & cleanup drops
+    const colors = getColors(this.colIndex, now);
+
     for (let i = this.drops.length - 1; i >= 0; i--) {{
       const d = this.drops[i];
       const dist = (this.headY - d.y) / lnH;
 
       if (dist <= 0.5) {{
-        d.el.style.color = '#fff';
-        d.el.style.textShadow = '0 0 14px #00ff41,0 0 30px #00ff41,0 0 5px #fff';
+        d.el.style.color = colors.head;
+        d.el.style.textShadow = colors.headShadow;
         d.el.style.opacity = '1';
       }} else if (dist <= trailLen * 0.25) {{
-        d.el.style.color = '#00ff41';
-        d.el.style.textShadow = '0 0 10px #00ff41,0 0 3px #00cc33';
+        d.el.style.color = colors.bright;
+        d.el.style.textShadow = colors.brightShadow;
         d.el.style.opacity = (bri * 0.95).toFixed(2);
       }} else if (dist <= trailLen * 0.6) {{
         const f = (dist - trailLen * 0.25) / (trailLen * 0.35);
-        d.el.style.color = '#00aa30';
-        d.el.style.textShadow = '0 0 4px #00882a';
+        d.el.style.color = colors.mid;
+        d.el.style.textShadow = colors.midShadow;
         d.el.style.opacity = Math.max(0.08, bri * (0.7 - f * 0.4)).toFixed(2);
       }} else if (dist <= trailLen) {{
         const f = (dist - trailLen * 0.6) / (trailLen * 0.4);
-        d.el.style.color = '#005a15';
+        d.el.style.color = colors.dim;
         d.el.style.textShadow = 'none';
         d.el.style.opacity = Math.max(0.02, 0.15 - f * 0.13).toFixed(2);
       }} else {{
@@ -191,20 +297,17 @@ html = f"""
     }}
   }};
 
-  // Each column manages a queue of trails
   function Column(index) {{
     this.index = index;
     this.x = index * colW;
     this.trails = [];
-    // Start with one trail at a random Y
-    const t = new Trail(this.x);
+    const t = new Trail(this.x, index);
     t.headY = Math.random() * H;
     t.lastSpawn = -Math.random() * spawnMs * 3;
     this.trails.push(t);
   }}
 
   Column.prototype.update = function(now, dt) {{
-    // Update all active trails
     for (let i = this.trails.length - 1; i >= 0; i--) {{
       this.trails[i].update(now, dt);
       if (this.trails[i].dead) {{
@@ -212,36 +315,14 @@ html = f"""
       }}
     }}
 
-    // Try to spawn a new trail if we have room
     if (this.trails.length < maxTrails) {{
-      // Check if we can spawn: the last trail's tail must have cleared
-      // enough space from the top for a new trail to start without overlap
       let canSpawn = true;
 
       if (this.trails.length > 0) {{
-        // Find the trail whose tail is closest to the top (most recent one)
-        let lowestTail = -Infinity;
-        for (let i = 0; i < this.trails.length; i++) {{
-          const ty = this.trails[i].tailY();
-          if (ty > lowestTail) lowestTail = ty;
-        }}
-        // Also check head positions to avoid spawning between head and tail
         let lowestHead = -Infinity;
         for (let i = 0; i < this.trails.length; i++) {{
           if (this.trails[i].headY > lowestHead) lowestHead = this.trails[i].headY;
         }}
-
-        // The new trail starts from above, so we need the previous trail's
-        // TAIL to have moved down enough to leave a gap
-        // tailY is the oldest drop; headY is the newest (bottom)
-        // We want: the oldest surviving drop of any trail is far enough
-        // below where a new head would start spawning (-lnH from top)
-        // Actually simpler: just check that no existing trail occupies
-        // the region from -lnH to gapPx below -lnH
-
-        // Even simpler: the newest trail's HEAD should be far enough
-        // that its full trail body (headY - trailLen*lnH) leaves room
-        // for a new trail starting from -lnH
         const trailTopOfNewest = lowestHead - trailLen * lnH;
         if (trailTopOfNewest < gapPx) {{
           canSpawn = false;
@@ -249,16 +330,15 @@ html = f"""
       }}
 
       if (canSpawn) {{
-        const t = new Trail(this.x);
+        const t = new Trail(this.x, this.index);
         t.headY = -lnH;
         t.lastSpawn = now;
         this.trails.push(t);
       }}
     }}
 
-    // Safety: always have at least one trail queued
     if (this.trails.length === 0) {{
-      const t = new Trail(this.x);
+      const t = new Trail(this.x, this.index);
       t.headY = -lnH;
       t.lastSpawn = now;
       this.trails.push(t);
