@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 
-st.set_page_config(page_title="Matrix Word Rain", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Matrix Word Rain", layout="wide", initial_sidebar_state="collapsed")
 
 # --- Sidebar ---
 st.sidebar.markdown("# 🖥️ Matrix Word Rain")
@@ -18,7 +18,7 @@ st.sidebar.markdown("### Layout")
 num_columns = st.sidebar.slider("Number of streams", 8, 60, 28)
 font_size = st.sidebar.slider("Font size (px)", 8, 22, 13)
 trails_per_col = st.sidebar.slider("Trails per column", 1, 4, 2)
-gap_words = st.sidebar.slider("Gap between trails (words)", 0, 10, 2)
+gap_words = st.sidebar.slider("Gap between trails (words)", 0, 10, 4)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Speed")
@@ -55,17 +55,14 @@ if not words:
 
 words_json = json.dumps(words)
 
-# Convert solid_color hex to RGB for JS
 def hex_to_rgb(h):
     h = h.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 sr, sg, sb = hex_to_rgb(solid_color)
-
 color_mode_js = {"Classic Green": "green", "Solid Color": "solid", "Rainbow": "rainbow"}[color_mode]
 
-html = f"""
-<!DOCTYPE html>
+html = f"""<!DOCTYPE html>
 <html>
 <head>
 <style>
@@ -77,8 +74,9 @@ html = f"""
     font-family: 'Share Tech Mono', 'Courier New', monospace;
   }}
   #matrix {{
-    position: relative;
-    width: 100%; height: 100vh;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
     overflow: hidden;
     background: radial-gradient(ellipse at center, #000d00 0%, #000 70%);
   }}
@@ -106,7 +104,7 @@ html = f"""
   #fsBtn {{
     position: fixed;
     top: 12px; right: 14px;
-    z-index: 100;
+    z-index: 200;
     background: rgba(0,20,0,0.75);
     border: 1px solid #00ff41;
     color: #00ff41;
@@ -117,7 +115,6 @@ html = f"""
     border-radius: 3px;
     letter-spacing: 0.05em;
     transition: background 0.2s, box-shadow 0.2s;
-    pointer-events: all;
   }}
   #fsBtn:hover {{
     background: rgba(0,60,0,0.9);
@@ -127,7 +124,7 @@ html = f"""
 </head>
 <body>
 <div id="matrix"></div>
-<button id="fsBtn" title="Toggle fullscreen">⛶ FULLSCREEN</button>
+<button id="fsBtn">⛶ FULLSCREEN</button>
 <script>
 (function() {{
   const words = {words_json};
@@ -142,14 +139,18 @@ html = f"""
   const colorMode = "{color_mode_js}";
   const solidR = {sr}, solidG = {sg}, solidB = {sb};
   const rainbowSpeed = {rainbow_speed};
-  const C = document.getElementById('matrix');
-  const H = C.offsetHeight || 750;
-  const W = C.offsetWidth || 1200;
-  const colW = W / numCols;
-  const lnH = {font_size} * 1.6;
-  const gapPx = gapWords * lnH;
 
-  // Each column gets a different hue offset for rainbow variety
+  const C = document.getElementById('matrix');
+  let H = window.innerHeight;
+  let W = window.innerWidth;
+  const lnH = {font_size} * 1.6;
+  let colW = W / numCols;
+
+  // Gap in pixels that must exist between the TAIL of one trail and the HEAD of a new one
+  // We measure this as: new trail starts at y=-lnH, so the previous trail's head
+  // must be at least (trailLen + gapWords) * lnH below the top before we spawn.
+  const minHeadBeforeSpawn = (trailLen + gapWords) * lnH;
+
   const colHueOffsets = [];
   for (let i = 0; i < numCols; i++) {{
     colHueOffsets.push((i / numCols) * 360);
@@ -164,15 +165,10 @@ html = f"""
   }}
 
   function getBaseColor(colIndex, now) {{
-    if (colorMode === 'green') {{
-      return [0, 255, 65];
-    }} else if (colorMode === 'solid') {{
-      return [solidR, solidG, solidB];
-    }} else {{
-      // Rainbow: cycle hue over time, offset by column so each stream has its own hue
-      const hue = (((now / (rainbowSpeed * 1000)) * 360) + colHueOffsets[colIndex]) % 360;
-      return hslToRgb(hue, 100, 55);
-    }}
+    if (colorMode === 'green') return [0, 255, 65];
+    if (colorMode === 'solid') return [solidR, solidG, solidB];
+    const hue = (((now / (rainbowSpeed * 1000)) * 360) + colHueOffsets[colIndex]) % 360;
+    return hslToRgb(hue, 100, 55);
   }}
 
   function pick(last) {{
@@ -192,16 +188,12 @@ html = f"""
     this.drops = [];
     this.lastWord = '';
     this.lastSpawn = 0;
-    this.maxTravel = H * (0.4 + Math.random() * 1.0);
+    // Travel the full screen height plus trail tail length so tail clears bottom
+    this.maxTravel = H + trailLen * lnH;
     this.traveled = 0;
     this.done = false;
     this.dead = false;
   }}
-
-  Trail.prototype.tailY = function() {{
-    if (this.drops.length === 0) return this.headY;
-    return this.drops[0].y;
-  }};
 
   Trail.prototype.update = function(now, dt) {{
     const mv = this.speed * dt;
@@ -210,17 +202,20 @@ html = f"""
 
     const [br, bg, bb] = getBaseColor(this.colIndex, now);
 
-    if (!this.done && now - this.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
-      const word = pick(this.lastWord);
-      this.lastWord = word;
-      const el = document.createElement('div');
-      el.className = 'w';
-      el.textContent = word;
-      el.style.left = this.x + 'px';
-      el.style.top = this.headY + 'px';
-      C.appendChild(el);
-      this.drops.push({{ el: el, y: this.headY }});
-      this.lastSpawn = now;
+    // Spawn words at head while trail is active and head is within screen
+    if (!this.done && this.headY < H + lnH) {{
+      if (now - this.lastSpawn >= spawnMs * (0.7 + Math.random() * 0.6)) {{
+        const word = pick(this.lastWord);
+        this.lastWord = word;
+        const el = document.createElement('div');
+        el.className = 'w';
+        el.textContent = word;
+        el.style.left = this.x + 'px';
+        el.style.top = this.headY + 'px';
+        C.appendChild(el);
+        this.drops.push({{ el: el, y: this.headY }});
+        this.lastSpawn = now;
+      }}
     }}
 
     if (!this.done && this.traveled >= this.maxTravel) {{
@@ -263,44 +258,51 @@ html = f"""
     }}
   }};
 
+  // Column manages a queue of sequentially-spawned trails.
+  // Key fix: a new trail only spawns when the PREVIOUS trail's head has moved
+  // far enough down that (trailLen + gapWords) * lnH of clear space exists
+  // at the top of the column for the new trail to start without overlap.
   function Column(index) {{
     this.index = index;
     this.x = index * colW;
     this.trails = [];
+    // Seed initial trail at a random position so screen fills immediately
     const t = new Trail(this.x, index);
     t.headY = Math.random() * H;
-    t.lastSpawn = -Math.random() * spawnMs * 3;
+    t.lastSpawn = performance.now() - Math.random() * spawnMs * 3;
     this.trails.push(t);
   }}
+
+  Column.prototype.canSpawnNext = function() {{
+    if (this.trails.length === 0) return true;
+    if (this.trails.length >= maxTrails) return false;
+
+    // Find the trail whose head is furthest down (most advanced).
+    // A new trail starts at headY = -lnH and moves at a similar speed.
+    // To avoid overlap, we need the leading trail's head to be at least
+    // minHeadBeforeSpawn pixels below the top, so the new trail's full
+    // body (trailLen words) plus the gap fits above it when they're closest.
+    let maxHeadY = -Infinity;
+    for (let i = 0; i < this.trails.length; i++) {{
+      if (this.trails[i].headY > maxHeadY) maxHeadY = this.trails[i].headY;
+    }}
+    return maxHeadY >= minHeadBeforeSpawn;
+  }};
 
   Column.prototype.update = function(now, dt) {{
     for (let i = this.trails.length - 1; i >= 0; i--) {{
       this.trails[i].update(now, dt);
-      if (this.trails[i].dead) {{
-        this.trails.splice(i, 1);
-      }}
+      if (this.trails[i].dead) this.trails.splice(i, 1);
     }}
 
-    if (this.trails.length < maxTrails) {{
-      let canSpawn = true;
-      if (this.trails.length > 0) {{
-        let lowestHead = -Infinity;
-        for (let i = 0; i < this.trails.length; i++) {{
-          if (this.trails[i].headY > lowestHead) lowestHead = this.trails[i].headY;
-        }}
-        const trailTopOfNewest = lowestHead - trailLen * lnH;
-        if (trailTopOfNewest < gapPx) {{
-          canSpawn = false;
-        }}
-      }}
-      if (canSpawn) {{
-        const t = new Trail(this.x, this.index);
-        t.headY = -lnH;
-        t.lastSpawn = now;
-        this.trails.push(t);
-      }}
+    if (this.canSpawnNext()) {{
+      const t = new Trail(this.x, this.index);
+      t.headY = -lnH;
+      t.lastSpawn = now;
+      this.trails.push(t);
     }}
 
+    // Safety: column went completely empty
     if (this.trails.length === 0) {{
       const t = new Trail(this.x, this.index);
       t.headY = -lnH;
@@ -316,7 +318,7 @@ html = f"""
 
   let lt = performance.now();
   function frame(now) {{
-    const dt = (now - lt) / 1000;
+    const dt = Math.min((now - lt) / 1000, 0.05); // cap dt to avoid jumps
     lt = now;
     for (let i = 0; i < columns.length; i++) {{
       columns[i].update(now, dt);
@@ -350,36 +352,48 @@ html = f"""
 </html>
 """
 
-st.components.v1.html(html, height=750, scrolling=False)
+# Inject CSS to stretch iframe to fill viewport and kill all Streamlit chrome padding
+st.markdown("""
+<style>
+.stApp { background-color: #000 !important; }
+header[data-testid="stHeader"] { display: none !important; }
+footer { display: none !important; }
+.stDeployButton { display: none !important; }
+/* Kill ALL padding/margin around the main content block */
+.main .block-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+}
+/* Stretch the iframe to viewport height */
+iframe {
+    border: none !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+section[data-testid="stSidebar"] {
+    background-color: #050f05 !important;
+    border-right: 1px solid #003300 !important;
+}
+section[data-testid="stSidebar"] * { color: #00dd38 !important; }
+section[data-testid="stSidebar"] textarea {
+    background-color: #001a00 !important;
+    color: #00ff41 !important;
+    border-color: #003300 !important;
+    font-family: 'Courier New', monospace !important;
+}
+section[data-testid="stSidebar"] button {
+    background-color: #002200 !important;
+    color: #00ff41 !important;
+    border: 1px solid #00ff41 !important;
+}
+section[data-testid="stSidebar"] button:hover {
+    background-color: #003300 !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-st.markdown(
-    """
-    <style>
-    .stApp { background-color: #000000 !important; }
-    header[data-testid="stHeader"] { background-color: #000000 !important; }
-    footer { display: none !important; }
-    .stDeployButton { display: none !important; }
-    section[data-testid="stSidebar"] {
-        background-color: #050f05 !important;
-        border-right: 1px solid #003300 !important;
-    }
-    section[data-testid="stSidebar"] * { color: #00dd38 !important; }
-    section[data-testid="stSidebar"] textarea {
-        background-color: #001a00 !important;
-        color: #00ff41 !important;
-        border-color: #003300 !important;
-        font-family: 'Courier New', monospace !important;
-    }
-    section[data-testid="stSidebar"] button {
-        background-color: #002200 !important;
-        color: #00ff41 !important;
-        border: 1px solid #00ff41 !important;
-    }
-    section[data-testid="stSidebar"] button:hover {
-        background-color: #003300 !important;
-    }
-    iframe { border: none !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.components.v1.html(html, height=800, scrolling=False)
