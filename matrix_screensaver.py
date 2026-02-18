@@ -120,10 +120,30 @@ html = f"""<!DOCTYPE html>
     background: rgba(0,60,0,0.9);
     box-shadow: 0 0 8px #00ff41;
   }}
+  #menuBtn {{
+    position: fixed;
+    top: 12px; left: 14px;
+    z-index: 200;
+    background: rgba(0,20,0,0.75);
+    border: 1px solid #00ff41;
+    color: #00ff41;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 13px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    transition: background 0.2s, box-shadow 0.2s;
+  }}
+  #menuBtn:hover {{
+    background: rgba(0,60,0,0.9);
+    box-shadow: 0 0 8px #00ff41;
+  }}
 </style>
 </head>
 <body>
 <div id="matrix"></div>
+<button id="menuBtn">☰ MENU</button>
 <button id="fsBtn">⛶ FULLSCREEN</button>
 <script>
 (function() {{
@@ -327,6 +347,22 @@ html = f"""<!DOCTYPE html>
   }}
   requestAnimationFrame(frame);
 
+  // --- Menu button: click Streamlit's sidebar toggle in the parent page ---
+  const menuBtn = document.getElementById('menuBtn');
+  menuBtn.addEventListener('click', function() {{
+    try {{
+      // Walk up to the top window and find the sidebar toggle button
+      const parentDoc = window.parent.document;
+      const btn = parentDoc.querySelector('button[data-testid="collapsedControl"]')
+                || parentDoc.querySelector('button[data-testid="stSidebarNavToggle"]')
+                || parentDoc.querySelector('[data-testid="stSidebar"] + div button')
+                || parentDoc.querySelector('header button');
+      if (btn) btn.click();
+    }} catch(e) {{
+      // cross-origin guard — nothing we can do
+    }}
+  }});
+
   // --- Fullscreen ---
   const fsBtn = document.getElementById('fsBtn');
   function updateBtnLabel() {{
@@ -352,20 +388,35 @@ html = f"""<!DOCTYPE html>
 </html>
 """
 
-# Inject CSS to stretch iframe to fill viewport and kill all Streamlit chrome padding
 st.markdown("""
 <style>
 .stApp { background-color: #000 !important; }
-header[data-testid="stHeader"] { display: none !important; }
+
+/* Keep the header but make it invisible — preserves the sidebar toggle button */
+header[data-testid="stHeader"] {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+}
+/* Hide all header content EXCEPT the sidebar toggle button */
+header[data-testid="stHeader"] > * { display: none !important; }
+button[data-testid="stSidebarNavToggle"],
+button[data-testid="collapsedControl"] {
+    display: flex !important;
+    z-index: 9999 !important;
+    color: #00ff41 !important;
+    background: rgba(0,20,0,0.8) !important;
+    border: 1px solid #00ff41 !important;
+    border-radius: 4px !important;
+}
+
 footer { display: none !important; }
 .stDeployButton { display: none !important; }
-/* Kill ALL padding/margin around the main content block */
+
 .main .block-container {
     padding: 0 !important;
     margin: 0 !important;
     max-width: 100% !important;
 }
-/* Stretch the iframe to viewport height */
 iframe {
     border: none !important;
     display: block !important;
